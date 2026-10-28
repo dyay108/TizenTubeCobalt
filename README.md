@@ -20,6 +20,7 @@ Cobalt is a lightweight, cross-platform application container and runtime for HT
 - ❗ **SponsorBlock Support**: Automatically skip sponsored segments in videos.
 - ⏭️ **Video Speed Control**: Adjust playback speed to your preference.
 - 🔺 **[DeArrow](https://dearrow.ajay.app/) Support**: Remove clickbait and misleading video titles.
+- 🌐 **HTTP Proxy Support**: Use the proxy configured in your device's network settings, or an explicit proxy passed to QA/devel builds.
 - ➕ **More to come!** Request features via [issues](https://github.com/reisxd/TizenTube/issues/new).
 
 ## ⬇️ Download
@@ -44,6 +45,26 @@ Get the latest release for your platform:
 1. Download the latest release from the link above.
 2. Sideload or install the app on your device (using a file manager, ADB, or platform-specific method).
 3. Open the app and enjoy an enhanced streaming experience!
+
+## 🌐 HTTP Proxy
+
+TizenTube Cobalt uses the HTTP proxy configured for the active network in the
+device's network settings. On Android TV, this is usually found under
+**Settings → Network & Internet → (network) → Proxy**. Fixed HTTP proxies, PAC
+scripts and bypass lists are supported. Restart the app after changing the
+network proxy.
+
+When running a QA or devel build, you can override the system proxy from the
+command line:
+
+```sh
+--proxy-server=proxy.example.com:8080
+--proxy-bypass-list=localhost;*.example.com
+# Or use a PAC script instead of a fixed proxy:
+--proxy-pac-url=https://proxy.example.com/proxy.pac
+```
+
+The `--proxy` flag is accepted as a legacy alias for `--proxy-server`.
 
 ## 🌐 Community & Support
 

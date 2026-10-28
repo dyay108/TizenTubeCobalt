@@ -421,6 +421,7 @@ test("cobalt_unittests") {
     "//cobalt/browser:command_line_logger",
     "//cobalt/browser:global_features",
     "//cobalt/browser:metrics",
+    "//cobalt/browser:proxy_server_support",
     "//cobalt/browser/client_hint_headers",
     "//cobalt/browser/constants:cobalt_experiment_names",
     "//cobalt/browser/constants:cobalt_pref_names",

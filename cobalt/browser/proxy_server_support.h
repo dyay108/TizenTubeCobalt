@@ -15,6 +15,11 @@
 #ifndef COBALT_BROWSER_PROXY_SERVER_SUPPORT_H_
 #define COBALT_BROWSER_PROXY_SERVER_SUPPORT_H_
 
+#include <optional>
+
+#include "base/command_line.h"
+#include "net/proxy_resolution/proxy_config_with_annotation.h"
+
 namespace network {
 namespace mojom {
 class NetworkContextParams;
@@ -24,9 +29,15 @@ class NetworkContextParams;
 namespace cobalt {
 namespace browser {
 
-// Conditionally parses proxy configuration from the command line and sets it on
-// the NetworkContextParams. This is meant solely for non-official QA/Dev
-// builds.
+// Builds a proxy configuration from the command line switches
+// --proxy-server (or its legacy alias --proxy), --proxy-bypass-list and
+// --proxy-pac-url. Returns nullopt when no proxy was requested.
+std::optional<net::ProxyConfigWithAnnotation> GetProxyConfigFromCommandLine(
+    const base::CommandLine& command_line);
+
+// Parses proxy configuration from the command line and sets it on the
+// NetworkContextParams. This is used by release builds as well, so users can
+// configure a proxy for an installed app.
 void ConfigureProxyFromCommandLineIfNeeded(
     network::mojom::NetworkContextParams* network_context_params);
 

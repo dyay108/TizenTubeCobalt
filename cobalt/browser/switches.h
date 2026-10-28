@@ -39,6 +39,15 @@ constexpr char kWindowSize[] = "window-size";
 // --enable-h5vcc-settings=Key1=Val1;Key2=Val2
 constexpr char kEnableH5vccSettings[] = "enable-h5vcc-settings";
 
+// Configure an HTTP/HTTPS proxy for all network requests made by the app.
+// The value is a Chromium proxy rule string, e.g. "http://host:8080" or
+// "http=host:8080;https=host:8443". "proxy" is accepted as an alias for
+// backwards compatibility.
+constexpr char kProxyServer[] = "proxy-server";
+constexpr char kProxyBypassList[] = "proxy-bypass-list";
+// Configure a proxy auto-config (PAC) script instead of a fixed proxy.
+constexpr char kProxyPacUrl[] = "proxy-pac-url";
+
 }  // namespace switches
 }  // namespace cobalt
 

@@ -14,46 +14,99 @@
 
 #include "cobalt/browser/proxy_server_support.h"
 
+#include <optional>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "cobalt/browser/switches.h"
 #include "net/proxy_resolution/proxy_config.h"
-#include "net/proxy_resolution/proxy_config_with_annotation.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "url/gurl.h"
 
 namespace cobalt {
 namespace browser {
+namespace {
+
+// Kept as an alias so existing QA scripts using --proxy keep working.
+constexpr char kLegacyProxySwitch[] = "proxy";
+
+net::NetworkTrafficAnnotationTag ProxyTrafficAnnotation() {
+  return net::DefineNetworkTrafficAnnotation(
+      "cobalt_manual_proxy",
+      "Routes app traffic through a proxy configured by the user.");
+}
+
+}  // namespace
+
+std::optional<net::ProxyConfigWithAnnotation> GetProxyConfigFromCommandLine(
+    const base::CommandLine& command_line) {
+  const std::string pac_url =
+      command_line.GetSwitchValueASCII(switches::kProxyPacUrl);
+  if (!pac_url.empty()) {
+    GURL parsed_pac_url(pac_url);
+    if (parsed_pac_url.is_valid()) {
+      net::ProxyConfig proxy_config;
+      proxy_config.set_pac_url(parsed_pac_url);
+      proxy_config.set_pac_mandatory(false);
+      return net::ProxyConfigWithAnnotation(proxy_config,
+                                            ProxyTrafficAnnotation());
+    }
+
+    LOG(WARNING) << "Ignoring invalid --" << switches::kProxyPacUrl << ": "
+                 << pac_url;
+  }
+
+  std::string proxy_server =
+      command_line.GetSwitchValueASCII(switches::kProxyServer);
+  if (proxy_server.empty()) {
+    proxy_server = command_line.GetSwitchValueASCII(kLegacyProxySwitch);
+  }
+  if (proxy_server.empty()) {
+    return std::nullopt;
+  }
+
+  net::ProxyConfig proxy_config;
+  proxy_config.proxy_rules().ParseFromString(proxy_server);
+  const net::ProxyConfig::ProxyRules& proxy_rules = proxy_config.proxy_rules();
+  if (proxy_rules.empty() || (proxy_rules.single_proxies.IsEmpty() &&
+                              proxy_rules.proxies_for_http.IsEmpty() &&
+                              proxy_rules.proxies_for_https.IsEmpty() &&
+                              proxy_rules.proxies_for_ftp.IsEmpty() &&
+                              proxy_rules.fallback_proxies.IsEmpty())) {
+    LOG(WARNING) << "Ignoring invalid --" << switches::kProxyServer << ": "
+                 << proxy_server;
+    return std::nullopt;
+  }
+
+  if (command_line.HasSwitch(switches::kProxyBypassList)) {
+    proxy_config.proxy_rules().bypass_rules.ParseFromString(
+        command_line.GetSwitchValueASCII(switches::kProxyBypassList));
+  }
+
+  return net::ProxyConfigWithAnnotation(proxy_config, ProxyTrafficAnnotation());
+}
 
 void ConfigureProxyFromCommandLineIfNeeded(
     network::mojom::NetworkContextParams* network_context_params) {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  std::string proxy_server;
-  if (command_line.HasSwitch("proxy-server")) {
-    proxy_server = command_line.GetSwitchValueASCII("proxy-server");
-  } else if (command_line.HasSwitch("proxy")) {
-    proxy_server = command_line.GetSwitchValueASCII("proxy");
+  std::optional<net::ProxyConfigWithAnnotation> proxy_config =
+      GetProxyConfigFromCommandLine(command_line);
+  if (!proxy_config.has_value()) {
+    return;
   }
 
-  if (!proxy_server.empty()) {
-    net::ProxyConfig proxy_config;
-    proxy_config.proxy_rules().ParseFromString(proxy_server);
-
-    if (command_line.HasSwitch("proxy-bypass-list")) {
-      std::string bypass_list =
-          command_line.GetSwitchValueASCII("proxy-bypass-list");
-      proxy_config.proxy_rules().bypass_rules.ParseFromString(bypass_list);
-    }
-
-    network_context_params->initial_proxy_config =
-        net::ProxyConfigWithAnnotation(
-            proxy_config, net::DefineNetworkTrafficAnnotation(
-                              "cobalt_manual_proxy",
-                              "Manually configured proxy via command line"));
-    LOG(INFO) << "Configuring Cobalt to use proxy: " << proxy_server;
+  if (proxy_config->value().has_pac_url()) {
+    LOG(INFO) << "Configuring Cobalt to use the PAC proxy from the command "
+                 "line";
+  } else {
+    LOG(INFO) << "Configuring Cobalt to use the proxy from the command line";
   }
+
+  network_context_params->initial_proxy_config = std::move(*proxy_config);
 }
 
 }  // namespace browser

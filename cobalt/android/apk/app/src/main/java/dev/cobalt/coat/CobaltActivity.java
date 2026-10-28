@@ -16,7 +16,10 @@ package dev.cobalt.coat;
 
 import static dev.cobalt.util.Log.TAG;
 
+import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.ProxyInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -84,6 +87,11 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
   private static final String META_DATA_ENABLE_FEATURES = "cobalt.ENABLE_FEATURES";
   private static final String YOUTUBE_URL = "https://www.youtube.com/tv";
   private static final String COBALT_USING_ANDROID_OVERLAY = "cobalt-using-android-overlay";
+
+  private static final String PROXY_SERVER_SWITCH = "--proxy-server";
+  private static final String LEGACY_PROXY_SWITCH = "--proxy";
+  private static final String PROXY_BYPASS_LIST_SWITCH = "--proxy-bypass-list";
+  private static final String PROXY_PAC_URL_SWITCH = "--proxy-pac-url";
 
   // How many seconds before the app exits if it fails to land YouTube home page.
   private static final int DEFAULT_HANG_APP_CRASH_TIMEOUT_SECONDS = 120;
@@ -185,6 +193,130 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     Collections.addAll(args, intentArgs);
   }
 
+  /**
+   * Appends proxy switches derived from the active network's system proxy.
+   *
+   * <p>Proxy settings configured in Android TV's network settings are not visible to Cobalt's
+   * network stack unless they are forwarded as command-line switches. Explicit proxy switches
+   * supplied by the caller take precedence.
+   */
+  private void appendSystemProxyArgs(@NonNull List<String> args) {
+    if (hasProxySwitch(args)) {
+      return;
+    }
+
+    ProxyInfo proxyInfo = getSystemProxyInfo();
+    if (proxyInfo != null) {
+      appendProxyInfoArgs(args, proxyInfo);
+      return;
+    }
+
+    appendSystemPropertyProxyArgs(args);
+  }
+
+  private static boolean hasProxySwitch(@NonNull List<String> args) {
+    for (String arg : args) {
+      if (arg == null) {
+        continue;
+      }
+      if (arg.equals(PROXY_SERVER_SWITCH)
+          || arg.startsWith(PROXY_SERVER_SWITCH + "=")
+          || arg.equals(LEGACY_PROXY_SWITCH)
+          || arg.startsWith(LEGACY_PROXY_SWITCH + "=")
+          || arg.equals(PROXY_PAC_URL_SWITCH)
+          || arg.startsWith(PROXY_PAC_URL_SWITCH + "=")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @VisibleForTesting
+  @Nullable
+  ProxyInfo getSystemProxyInfo() {
+    try {
+      ConnectivityManager connectivityManager =
+          (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+      if (connectivityManager != null) {
+        return connectivityManager.getDefaultProxy();
+      }
+    } catch (RuntimeException e) {
+      Log.w(TAG, "Failed to read the system proxy: %s", e);
+    }
+    return null;
+  }
+
+  private static void appendSystemPropertyProxyArgs(@NonNull List<String> args) {
+    String host = System.getProperty("http.proxyHost");
+    String portString = System.getProperty("http.proxyPort");
+    if (TextUtils.isEmpty(host)) {
+      host = System.getProperty("https.proxyHost");
+      portString = System.getProperty("https.proxyPort");
+    }
+    if (TextUtils.isEmpty(host) || TextUtils.isEmpty(portString)) {
+      return;
+    }
+
+    int port;
+    try {
+      port = Integer.parseInt(portString.trim());
+    } catch (NumberFormatException e) {
+      Log.w(TAG, "Ignoring invalid system proxy port: %s", portString);
+      return;
+    }
+    appendProxyArgs(args, host, port, /* exclusion_list= */ null);
+  }
+
+  @VisibleForTesting
+  static void appendProxyInfoArgs(@NonNull List<String> args, @Nullable ProxyInfo proxyInfo) {
+    if (proxyInfo == null) {
+      return;
+    }
+
+    Uri pacUrl = proxyInfo.getPacFileUrl();
+    if (pacUrl != null && !Uri.EMPTY.equals(pacUrl)) {
+      args.add(PROXY_PAC_URL_SWITCH + "=" + pacUrl);
+      Log.i(TAG, "Using system PAC proxy: %s", pacUrl);
+      return;
+    }
+
+    appendProxyArgs(args, proxyInfo.getHost(), proxyInfo.getPort(), proxyInfo.getExclusionList());
+  }
+
+  private static void appendProxyArgs(
+      @NonNull List<String> args,
+      @Nullable String host,
+      int port,
+      @Nullable String[] exclusionList) {
+    if (TextUtils.isEmpty(host) || port <= 0 || port > 0xFFFF) {
+      return;
+    }
+
+    String proxyServer = formatProxyServer(host, port);
+    args.add(PROXY_SERVER_SWITCH + "=" + proxyServer);
+    if (exclusionList != null && exclusionList.length > 0) {
+      String bypassList = TextUtils.join(";", exclusionList);
+      if (!TextUtils.isEmpty(bypassList)) {
+        args.add(PROXY_BYPASS_LIST_SWITCH + "=" + bypassList);
+      }
+    }
+    Log.i(TAG, "Using system HTTP proxy: %s", proxyServer);
+  }
+
+  @VisibleForTesting
+  @NonNull
+  static String formatProxyServer(@NonNull String host, int port) {
+    String trimmedHost = host.trim();
+    if (trimmedHost.startsWith("[") && trimmedHost.endsWith("]")) {
+      trimmedHost = trimmedHost.substring(1, trimmedHost.length() - 1);
+    }
+    if (trimmedHost.indexOf(':') >= 0) {
+      // Chromium expects IPv6 literals inside brackets.
+      trimmedHost = "[" + trimmedHost + "]";
+    }
+    return trimmedHost + ":" + port;
+  }
+
   @VisibleForTesting
   @NonNull
   List<String> getCommandLineArgs() {
@@ -195,6 +327,7 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     appendMetaDataArgs(args, getActivityMetaData());
     args.addAll(JavaSwitches.getExtraCommandLineArgs(getJavaSwitches()));
     appendIntentArgs(args);
+    appendSystemProxyArgs(args);
     return args;
   }
 

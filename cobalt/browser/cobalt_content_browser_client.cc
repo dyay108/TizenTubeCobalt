@@ -474,10 +474,8 @@ void CobaltContentBrowserClient::ConfigureNetworkContextParams(
     }
   }
 
-#if !BUILDFLAG(COBALT_IS_RELEASE_BUILD)
   cobalt::browser::ConfigureProxyFromCommandLineIfNeeded(
       network_context_params);
-#endif
 
   network_context_params->enable_certificate_reporting = true;
 

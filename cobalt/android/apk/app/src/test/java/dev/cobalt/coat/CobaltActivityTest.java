@@ -27,12 +27,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Intent;
+import android.net.ProxyInfo;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import dev.cobalt.shell.StartupGuard;
 import dev.cobalt.util.JavaSwitches;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +105,124 @@ public class CobaltActivityTest {
         return null;
       }
     };
+  }
+
+  public CobaltActivity createActivityForSystemProxyTests(
+      final ProxyInfo proxyInfo, final boolean isReleaseBuild, final Intent intent) {
+    final Intent actualIntent = intent != null ? intent : new Intent();
+    return new CobaltActivity() {
+      @Override
+      protected boolean isDevelopmentBuild() {
+        return false;
+      }
+
+      @Override
+      protected boolean isReleaseBuild() {
+        return isReleaseBuild;
+      }
+
+      @Override
+      public Intent getIntent() {
+        return actualIntent;
+      }
+
+      @Override
+      ProxyInfo getSystemProxyInfo() {
+        return proxyInfo;
+      }
+
+      @Override
+      protected ImeAdapterImpl getImeAdapterImpl() {
+        return null;
+      }
+
+      @Override
+      protected StarboardBridge createStarboardBridge(String[] args, String startDeepLink) {
+        return null;
+      }
+    };
+  }
+
+  @Test
+  public void testFormatProxyServer_IPv4() {
+    assertEquals(
+        "proxy.example.com:8080", CobaltActivity.formatProxyServer("proxy.example.com", 8080));
+  }
+
+  @Test
+  public void testFormatProxyServer_IPv6() {
+    assertEquals("[2001:db8::1]:3128", CobaltActivity.formatProxyServer("2001:db8::1", 3128));
+  }
+
+  @Test
+  public void testFormatProxyServer_BracketedIPv6() {
+    assertEquals(
+        "[2001:db8::1]:3128", CobaltActivity.formatProxyServer("[2001:db8::1]", 3128));
+  }
+
+  @Test
+  public void testAppendProxyInfoArgs_DirectProxyWithBypassList() {
+    ProxyInfo proxyInfo =
+        ProxyInfo.buildDirectProxy(
+            "proxy.example.com", 8080, Arrays.asList("*.example.com", "localhost"));
+    List<String> args = new ArrayList<>();
+
+    CobaltActivity.appendProxyInfoArgs(args, proxyInfo);
+
+    assertEquals(
+        Arrays.asList(
+            "--proxy-server=proxy.example.com:8080",
+            "--proxy-bypass-list=*.example.com;localhost"),
+        args);
+  }
+
+  @Test
+  public void testAppendProxyInfoArgs_PacProxy() {
+    Uri pacUrl = Uri.parse("https://proxy.example.com/proxy.pac");
+    ProxyInfo proxyInfo = ProxyInfo.buildPacProxy(pacUrl);
+    List<String> args = new ArrayList<>();
+
+    CobaltActivity.appendProxyInfoArgs(args, proxyInfo);
+
+    assertEquals(Arrays.asList("--proxy-pac-url=" + pacUrl), args);
+  }
+
+  @Test
+  public void testAppendProxyInfoArgs_InvalidDirectProxy() {
+    ProxyInfo proxyInfo = mock(ProxyInfo.class);
+    List<String> args = new ArrayList<>();
+
+    CobaltActivity.appendProxyInfoArgs(args, proxyInfo);
+
+    assertTrue(args.isEmpty());
+  }
+
+  @Test
+  public void testGetCommandLineArgs_SystemProxyAddedForReleaseBuild() {
+    ProxyInfo proxyInfo = ProxyInfo.buildDirectProxy("proxy.example.com", 8080);
+    CobaltActivity activity =
+        createActivityForSystemProxyTests(
+            proxyInfo, /* isReleaseBuild= */ true, /* intent= */ null);
+
+    List<String> args = activity.getCommandLineArgs();
+
+    assertTrue(args.contains("--proxy-server=proxy.example.com:8080"));
+  }
+
+  @Test
+  public void testGetCommandLineArgs_ExplicitProxyTakesPrecedence() {
+    ProxyInfo proxyInfo = ProxyInfo.buildDirectProxy("system.proxy", 8080);
+    Intent intent = new Intent();
+    intent.putExtra(
+        CobaltActivity.COMMAND_LINE_ARGS_KEY,
+        new String[] {"--proxy-server=user.proxy:9090"});
+    CobaltActivity activity =
+        createActivityForSystemProxyTests(proxyInfo, /* isReleaseBuild= */ false, intent);
+
+    List<String> args = activity.getCommandLineArgs();
+
+    assertTrue(args.contains("--proxy-server=user.proxy:9090"));
+    assertFalse(args.contains("--proxy-server=system.proxy:8080"));
   }
 
   @Test

@@ -18,12 +18,15 @@
 #include <string>
 #include <variant>
 
+#include "base/command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "cobalt/browser/client_hint_headers/cobalt_header_value_provider.h"
 #include "cobalt/browser/features.h"
 #include "cobalt/browser/global_features.h"
+#include "cobalt/browser/proxy_server_support.h"
+#include "cobalt/browser/switches.h"
 #include "content/public/browser/overlay_window.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/isolation_info.h"
@@ -34,6 +37,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/gurl.h"
 #include "url/origin.h"
 
 namespace cobalt {
@@ -90,6 +94,61 @@ TEST_F(CobaltContentBrowserClientTest, ComputeDefaultHttpCacheSize) {
 
   // 3. Zero / unconfigured budget:
   EXPECT_EQ(CobaltContentBrowserClient::ComputeDefaultHttpCacheSize(0), 0u);
+}
+
+TEST_F(CobaltContentBrowserClientTest, ProxyConfigFromCommandLine_NoProxy) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+
+  EXPECT_FALSE(
+      browser::GetProxyConfigFromCommandLine(command_line).has_value());
+}
+
+TEST_F(CobaltContentBrowserClientTest, ProxyConfigFromCommandLine_ManualProxy) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII(switches::kProxyServer,
+                                 "proxy.example.com:8080");
+  command_line.AppendSwitchASCII(switches::kProxyBypassList,
+                                 "example.com;*.internal");
+
+  std::optional<net::ProxyConfigWithAnnotation> proxy_config =
+      browser::GetProxyConfigFromCommandLine(command_line);
+
+  ASSERT_TRUE(proxy_config.has_value());
+  const net::ProxyConfig& config = proxy_config->value();
+  EXPECT_FALSE(config.has_pac_url());
+  EXPECT_EQ(net::ProxyConfig::ProxyRules::Type::PROXY_LIST,
+            config.proxy_rules().type);
+  EXPECT_EQ(1u, config.proxy_rules().single_proxies.size());
+  EXPECT_TRUE(
+      config.proxy_rules().bypass_rules.Matches(GURL("https://example.com/")));
+  EXPECT_FALSE(
+      config.proxy_rules().bypass_rules.Matches(GURL("https://other.com/")));
+}
+
+TEST_F(CobaltContentBrowserClientTest, ProxyConfigFromCommandLine_LegacyProxy) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII("proxy", "http://proxy.example.com:8080");
+
+  std::optional<net::ProxyConfigWithAnnotation> proxy_config =
+      browser::GetProxyConfigFromCommandLine(command_line);
+
+  ASSERT_TRUE(proxy_config.has_value());
+  EXPECT_EQ(1u,
+            proxy_config->value().proxy_rules().single_proxies.size());
+}
+
+TEST_F(CobaltContentBrowserClientTest, ProxyConfigFromCommandLine_PacUrl) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII(switches::kProxyPacUrl,
+                                 "https://example.com/proxy.pac");
+
+  std::optional<net::ProxyConfigWithAnnotation> proxy_config =
+      browser::GetProxyConfigFromCommandLine(command_line);
+
+  ASSERT_TRUE(proxy_config.has_value());
+  EXPECT_TRUE(proxy_config->value().has_pac_url());
+  EXPECT_EQ("https://example.com/proxy.pac",
+            proxy_config->value().pac_url().spec());
 }
 
 class CobaltContentBrowserClientHeaderTest
