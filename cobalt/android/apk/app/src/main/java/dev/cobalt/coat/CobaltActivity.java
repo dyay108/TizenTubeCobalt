@@ -18,6 +18,8 @@ import static dev.cobalt.util.Log.TAG;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.ConnectivityManager;
 import android.net.ProxyInfo;
 import android.net.Uri;
@@ -37,6 +39,7 @@ import android.view.ViewParent;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.PopupWindow;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -109,6 +112,7 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
 
   private VideoSurfaceView mVideoSurfaceView;
   private @Nullable Button mProxyTestButton;
+  private @Nullable PopupWindow mProxyTestPopup;
 
   private boolean mForceCreateNewVideoSurfaceView;
 
@@ -523,23 +527,37 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     button.setFocusableInTouchMode(true);
     button.setOnClickListener(v -> runProxyConnectivityTest(button));
 
-    FrameLayout.LayoutParams params =
-        new FrameLayout.LayoutParams(
+    PopupWindow popup =
+        new PopupWindow(
+            button,
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP | Gravity.END);
-    params.topMargin = 24;
-    params.rightMargin = 24;
-    addContentView(button, params);
-    button.bringToFront();
-    button.post(
+            true);
+    popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+    popup.setOutsideTouchable(false);
+    popup.setFocusable(true);
+    popup.setOnDismissListener(() -> mProxyTestPopup = null);
+
+    View anchor = mVideoSurfaceView;
+    if (anchor == null) {
+      anchor = getWindow().getDecorView();
+    }
+    final View popupAnchor = anchor;
+    mProxyTestButton = button;
+    mProxyTestPopup = popup;
+
+    // Wait until the activity's window token is available before adding the popup window.
+    popupAnchor.post(
         () -> {
+          if (mProxyTestPopup != popup) {
+            return;
+          }
+          popup.showAtLocation(popupAnchor, Gravity.TOP | Gravity.END, 24, 24);
           if (!button.requestFocus()) {
             Log.w(TAG, "Could not focus the HTTP proxy test button");
           }
         });
 
-    mProxyTestButton = button;
     Log.i(TAG, "Added HTTP proxy test button");
   }
 
@@ -567,6 +585,13 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
             + "    .catch(function(error) { show('Proxy test failed', String(error)); });"
             + "})();";
     evaluateJavaScript(script);
+
+    // The popup owns window focus; dismiss it so the page (and its result dialog) can receive
+    // input again.
+    if (mProxyTestPopup != null) {
+      mProxyTestPopup.dismiss();
+      mProxyTestPopup = null;
+    }
 
     // Restore focus to the web contents so the app remains navigable after the test.
     View contentView = mVideoSurfaceView;
