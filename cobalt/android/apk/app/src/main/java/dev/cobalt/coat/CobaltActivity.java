@@ -28,12 +28,14 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.ViewParent;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
@@ -106,6 +108,7 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
   private CobaltA11yHelper mA11yHelper;
 
   private VideoSurfaceView mVideoSurfaceView;
+  private @Nullable Button mProxyTestButton;
 
   private boolean mForceCreateNewVideoSurfaceView;
 
@@ -498,8 +501,90 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
 
             // Load splash screen.
             mShellManager.getActiveShell().loadSplashScreenWebContents();
+
+            showProxyTestButtonIfNeeded();
           }
         });
+  }
+
+  /**
+   * Adds a development-only button that exercises the app's network stack through the configured
+   * HTTP proxy. The button is intentionally not shown in release builds.
+   */
+  private void showProxyTestButtonIfNeeded() {
+    if (!isDevelopmentBuild() || mProxyTestButton != null) {
+      return;
+    }
+
+    Button button = new Button(this);
+    button.setText("Test HTTP proxy");
+    button.setAllCaps(false);
+    button.setFocusable(true);
+    button.setFocusableInTouchMode(true);
+    button.setOnClickListener(v -> runProxyConnectivityTest(button));
+
+    FrameLayout.LayoutParams params =
+        new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP | Gravity.END);
+    params.topMargin = 24;
+    params.rightMargin = 24;
+    addContentView(button, params);
+    button.bringToFront();
+    button.post(
+        () -> {
+          if (!button.requestFocus()) {
+            Log.w(TAG, "Could not focus the HTTP proxy test button");
+          }
+        });
+
+    mProxyTestButton = button;
+    Log.i(TAG, "Added HTTP proxy test button");
+  }
+
+  private void runProxyConnectivityTest(Button button) {
+    button.setText("Testing proxy...");
+    button.setEnabled(false);
+    button.setFocusable(false);
+
+    // Run the request from the page so it goes through Cobalt's network stack (and therefore the
+    // configured proxy) rather than through a separate Java HTTP client.
+    String script =
+        "(function() {"
+            + "  var url = 'https://www.youtube.com/generate_204?tt_proxy_test=' + Date.now();"
+            + "  var start = Date.now();"
+            + "  function show(title, message) {"
+            + "    console.log('TT_PROXY_TEST ' + title + ': ' + message);"
+            + "    if (window.h5vcc && h5vcc.tizentube && h5vcc.tizentube.ShowAlertDialog) {"
+            + "      h5vcc.tizentube.ShowAlertDialog(title, message);"
+            + "    } else { alert(title + ': ' + message); }"
+            + "  }"
+            + "  fetch(url, {cache: 'no-store', credentials: 'omit'})"
+            + "    .then(function(response) {"
+            + "      show('Proxy test', 'HTTP ' + response.status + ' in ' + (Date.now() - start) + ' ms');"
+            + "    })"
+            + "    .catch(function(error) { show('Proxy test failed', String(error)); });"
+            + "})();";
+    evaluateJavaScript(script);
+
+    // Restore focus to the web contents so the app remains navigable after the test.
+    View contentView = mVideoSurfaceView;
+    if (contentView == null && mShellManager != null) {
+      contentView = mShellManager.getContentViewRenderView();
+    }
+    if (contentView != null) {
+      contentView.requestFocus();
+    }
+
+    button.postDelayed(
+        () -> {
+          button.setText("Test HTTP proxy");
+          button.setEnabled(true);
+        },
+        10000);
+
+    Log.i(TAG, "Running HTTP proxy connectivity test");
   }
 
   // Initially copied from ContentShellActiviy.java
