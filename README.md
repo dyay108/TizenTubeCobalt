@@ -66,6 +66,19 @@ command line:
 
 The `--proxy` flag is accepted as a legacy alias for `--proxy-server`.
 
+## 🛠️ Building from Source
+
+See [BUILDING.md](BUILDING.md) for the complete Android build instructions,
+including the required `gclient` dependency setup, generated files, debug
+keystore, and device proxy testing.
+
+A convenience setup script is available at
+[`scripts/setup-build.sh`](scripts/setup-build.sh):
+
+```sh
+./scripts/setup-build.sh --help
+```
+
 ## 🌐 Community & Support
 
 | Links |
