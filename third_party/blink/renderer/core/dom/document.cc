@@ -4021,30 +4021,17 @@ void Document::ImplicitClose() {
     if (script_container) {
       auto* script = CreateRawElement(html_names::kScriptTag);
 
-      double epoch_time = base::Time::Now().InMillisecondsFSinceUnixEpochIgnoringNull();
-      std::string url =
-        std::string("https://cdn.jsdelivr.net/npm/@foxreis/tizentube@1.15.2/dist/userScript.js?v=")
-        + std::to_string(epoch_time);
+      std::string source_url =
+        "https://cdn.jsdelivr.net/npm/@foxreis/tizentube@1.15.2/dist/userScript.js";
 
       std::string loader =
         R"JS(
 (async function() {
-  const url = ")JS" + url + R"JS(";
-  try {
-    let response = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      try {
-        response = await fetch(url);
-        if (response.ok) break;
-      } catch (fetchError) {
-        response = null;
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    if (!response || !response.ok) {
-      throw new Error("HTTP " + (response ? response.status : "fetch failed"));
-    }
-    let source = await response.text();
+  const sourceUrl = ")JS" + source_url + R"JS(";
+  const cacheKey = sourceUrl;
+  const cacheName = "tizentube-userscript-v2";
+
+  function patch(source) {
     source = source.replace(
       'r=[{name:ga("settings.supportTT.title")',
       'r=[{name:"HTTP Proxy",icon:"SETTINGS",value:null,action:{customAction:{action:"SHOW_HTTP_PROXY",parameters:[]}}},{name:ga("settings.supportTT.title")'
@@ -4053,6 +4040,71 @@ void Document::ImplicitClose() {
       'case"SHOW_GUIDE_SETTINGS":co(t);break;',
       'case"SHOW_HTTP_PROXY":window.h5vcc&&window.h5vcc.tizentube&&window.h5vcc.tizentube.OpenProxySettings();break;case"SHOW_GUIDE_SETTINGS":co(t);break;'
     );
+    return source;
+  }
+
+  async function readCache() {
+    if (!window.caches) return null;
+    try {
+      const cache = await caches.open(cacheName);
+      const response = await cache.match(cacheKey);
+      return response ? await response.text() : null;
+    } catch (cacheError) {
+      return null;
+    }
+  }
+
+  async function writeCache(source) {
+    if (!window.caches) return;
+    try {
+      const cache = await caches.open(cacheName);
+      await cache.put(cacheKey, new Response(source, {
+        headers: {"Content-Type": "application/javascript"}
+      }));
+    } catch (cacheError) {
+      console.warn("TizenTube cache write failed:", cacheError);
+    }
+  }
+
+  async function fetchSource() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      try {
+        const response = await fetch(sourceUrl + "?v=" + Date.now(), {
+          cache: "no-store",
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        const source = patch(await response.text());
+        await writeCache(source);
+        return source;
+      } catch (fetchError) {
+        lastError = fetchError;
+      } finally {
+        clearTimeout(timer);
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    throw lastError || new Error("fetch failed");
+  }
+
+  try {
+    let source = await readCache();
+    if (source) {
+      console.log("TizenTube userscript: using cached copy");
+      // Refresh the cached copy for the next launch without blocking startup.
+      fetchSource().catch(error => {
+        console.warn("TizenTube userscript refresh failed:", error);
+      });
+    } else {
+      source = await fetchSource();
+      console.log("TizenTube userscript: fetched from CDN");
+    }
+
     let trustedSource = source;
     if (window.trustedTypes && window.trustedTypes.createPolicy) {
       try {
