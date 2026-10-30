@@ -777,7 +777,6 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     // 1. Gather all Java objects that need to be exposed to JavaScript.
     // TODO(b/379701165): consider to refine the way to add JavaScript interfaces.
     mJavaScriptAndroidObjectList.add(new HTMLMediaElementExtension(this));
-    mJavaScriptAndroidObjectList.add(new TizenTubeProxyBridge(this));
 
     // 2. Use JavascriptInjector to inject Java objects into the WebContents.
     //    This makes the annotated methods in these objects accessible from JavaScript.

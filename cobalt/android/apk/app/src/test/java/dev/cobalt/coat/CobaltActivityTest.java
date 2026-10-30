@@ -96,6 +96,11 @@ public class CobaltActivityTest {
       }
 
       @Override
+      String getSavedAppProxy() {
+        return null;
+      }
+
+      @Override
       protected ImeAdapterImpl getImeAdapterImpl() {
         return null;
       }

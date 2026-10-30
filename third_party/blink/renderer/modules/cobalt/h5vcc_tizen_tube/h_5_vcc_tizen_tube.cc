@@ -178,6 +178,14 @@ void H5vccTizenTube::ShowAlertDialog(
   #endif // BUILDFLAG(IS_ANDROID)
 }
 
+void H5vccTizenTube::OpenProxySettings() {
+#if BUILDFLAG(IS_ANDROID)
+  auto* env = base::android::AttachCurrentThread();
+  starboard::StarboardBridge* bridge = starboard::StarboardBridge::GetInstance();
+  bridge->OpenProxySettings(env);
+#endif  // BUILDFLAG(IS_ANDROID)
+}
+
 void H5vccTizenTube::Trace(Visitor* visitor) const {
   visitor->Trace(service_);
   ScriptWrappable::Trace(visitor);

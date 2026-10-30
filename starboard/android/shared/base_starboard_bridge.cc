@@ -517,6 +517,11 @@ void StarboardBridge::ShowAlertDialog(JNIEnv* env,
       ConvertUTF8ToJavaString(env, message));
 }
 
+void StarboardBridge::OpenProxySettings(JNIEnv* env) const {
+  SB_CHECK(env);
+  Java_BaseStarboardBridge_openProxySettings(env, j_starboard_bridge_);
+}
+
 void StarboardBridge::SetStartupDiagnosisInfo(const char* key,
                                               const char* value) const {
   JNIEnv* env = AttachCurrentThread();

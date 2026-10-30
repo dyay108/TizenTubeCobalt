@@ -4031,9 +4031,18 @@ void Document::ImplicitClose() {
 (async function() {
   const url = ")JS" + url + R"JS(";
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error("HTTP " + response.status);
+    let response = null;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        response = await fetch(url);
+        if (response.ok) break;
+      } catch (fetchError) {
+        response = null;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    if (!response || !response.ok) {
+      throw new Error("HTTP " + (response ? response.status : "fetch failed"));
     }
     let source = await response.text();
     source = source.replace(
@@ -4042,10 +4051,24 @@ void Document::ImplicitClose() {
     );
     source = source.replace(
       'case"SHOW_GUIDE_SETTINGS":co(t);break;',
-      'case"SHOW_HTTP_PROXY":window.TizenTubeProxy&&window.TizenTubeProxy.openSettings();break;case"SHOW_GUIDE_SETTINGS":co(t);break;'
+      'case"SHOW_HTTP_PROXY":window.h5vcc&&window.h5vcc.tizentube&&window.h5vcc.tizentube.OpenProxySettings();break;case"SHOW_GUIDE_SETTINGS":co(t);break;'
     );
+    let trustedSource = source;
+    if (window.trustedTypes && window.trustedTypes.createPolicy) {
+      try {
+        const policy = window.trustedTypes.createPolicy(
+          "tizentube-loader", {createScript: value => value});
+        trustedSource = policy.createScript(source);
+      } catch (policyError) {
+        console.warn("TizenTube trusted types policy failed:", policyError);
+      }
+    }
     const script = document.createElement("script");
-    script.textContent = source;
+    const nonceScript = document.querySelector("script[nonce]");
+    if (nonceScript) {
+      script.setAttribute("nonce", nonceScript.nonce);
+    }
+    script.text = trustedSource;
     (document.head || document.documentElement).appendChild(script);
   } catch (error) {
     console.error("TizenTube userscript failed:", error);
@@ -4057,6 +4080,20 @@ void Document::ImplicitClose() {
 })();
 )JS";
       script->setTextContent(AtomicString(loader.c_str()));
+
+      // Reuse the page's CSP nonce; without it the inline loader is blocked.
+      if (script_container->isConnected()) {
+        for (Node* child = script_container->firstChild(); child;
+             child = child->nextSibling()) {
+          if (auto* element = DynamicTo<Element>(child)) {
+            const AtomicString& nonce = element->nonce();
+            if (!nonce.empty()) {
+              script->setAttribute(html_names::kNonceAttr, nonce);
+              break;
+            }
+          }
+        }
+      }
       script_container->appendChild(script);
     }
   }

@@ -1171,6 +1171,14 @@ public class BaseStarboardBridge {
   }
 
   @CalledByNative
+  protected void openProxySettings() {
+    Activity activity = mActivityHolder.get();
+    if (activity instanceof CobaltActivity) {
+      activity.runOnUiThread(((CobaltActivity) activity)::showProxySettingsDialog);
+    }
+  }
+
+  @CalledByNative
   protected void showAlertDialog(String title, String message) {
     Activity activity = mActivityHolder.get();
     if (activity == null) return;

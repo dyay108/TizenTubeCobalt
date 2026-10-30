@@ -66,6 +66,7 @@ class MODULES_EXPORT H5vccTizenTube final
                         ExceptionState& exception_state);
   void ShowAlertDialog(const WTF::String& title,
                         const WTF::String& message);
+  void OpenProxySettings();
 
   bool EnsureReceiverIsBound();
 
