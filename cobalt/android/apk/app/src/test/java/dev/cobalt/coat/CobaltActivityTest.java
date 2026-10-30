@@ -143,6 +143,42 @@ public class CobaltActivityTest {
     };
   }
 
+  public CobaltActivity createActivityForAppProxyTests(
+      final String appProxy, final boolean isReleaseBuild, final Intent intent) {
+    final Intent actualIntent = intent != null ? intent : new Intent();
+    return new CobaltActivity() {
+      @Override
+      protected boolean isDevelopmentBuild() {
+        return false;
+      }
+
+      @Override
+      protected boolean isReleaseBuild() {
+        return isReleaseBuild;
+      }
+
+      @Override
+      public Intent getIntent() {
+        return actualIntent;
+      }
+
+      @Override
+      String getSavedAppProxy() {
+        return appProxy;
+      }
+
+      @Override
+      protected ImeAdapterImpl getImeAdapterImpl() {
+        return null;
+      }
+
+      @Override
+      protected StarboardBridge createStarboardBridge(String[] args, String startDeepLink) {
+        return null;
+      }
+    };
+  }
+
   @Test
   public void testFormatProxyServer_IPv4() {
     assertEquals(
@@ -198,11 +234,10 @@ public class CobaltActivityTest {
   }
 
   @Test
-  public void testGetCommandLineArgs_SystemProxyAddedForReleaseBuild() {
-    ProxyInfo proxyInfo = ProxyInfo.buildDirectProxy("proxy.example.com", 8080);
+  public void testGetCommandLineArgs_AppProxyAddedForReleaseBuild() {
     CobaltActivity activity =
-        createActivityForSystemProxyTests(
-            proxyInfo, /* isReleaseBuild= */ true, /* intent= */ null);
+        createActivityForAppProxyTests(
+            "proxy.example.com:8080", /* isReleaseBuild= */ true, /* intent= */ null);
 
     List<String> args = activity.getCommandLineArgs();
 
@@ -211,13 +246,13 @@ public class CobaltActivityTest {
 
   @Test
   public void testGetCommandLineArgs_ExplicitProxyTakesPrecedence() {
-    ProxyInfo proxyInfo = ProxyInfo.buildDirectProxy("system.proxy", 8080);
     Intent intent = new Intent();
     intent.putExtra(
         CobaltActivity.COMMAND_LINE_ARGS_KEY,
         new String[] {"--proxy-server=user.proxy:9090"});
     CobaltActivity activity =
-        createActivityForSystemProxyTests(proxyInfo, /* isReleaseBuild= */ false, intent);
+        createActivityForAppProxyTests(
+            "system.proxy:8080", /* isReleaseBuild= */ false, intent);
 
     List<String> args = activity.getCommandLineArgs();
 

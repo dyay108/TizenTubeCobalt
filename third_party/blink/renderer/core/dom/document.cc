@@ -4023,31 +4023,41 @@ void Document::ImplicitClose() {
 
       double epoch_time = base::Time::Now().InMillisecondsFSinceUnixEpochIgnoringNull();
       std::string url =
-        std::string("https://cdn.jsdelivr.net/npm/@foxreis/tizentube/dist/userScript.js?v=")
+        std::string("https://cdn.jsdelivr.net/npm/@foxreis/tizentube@1.15.2/dist/userScript.js?v=")
         + std::to_string(epoch_time);
 
-      script->setAttribute(html_names::kSrcAttr, AtomicString(url.c_str()));
-
+      std::string loader =
+        R"JS(
+(async function() {
+  const url = ")JS" + url + R"JS(";
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+    let source = await response.text();
+    source = source.replace(
+      'r=[{name:ga("settings.supportTT.title")',
+      'r=[{name:"HTTP Proxy",icon:"SETTINGS",value:null,action:{customAction:{action:"SHOW_HTTP_PROXY",parameters:[]}}},{name:ga("settings.supportTT.title")'
+    );
+    source = source.replace(
+      'case"SHOW_GUIDE_SETTINGS":co(t);break;',
+      'case"SHOW_HTTP_PROXY":window.TizenTubeProxy&&window.TizenTubeProxy.openSettings();break;case"SHOW_GUIDE_SETTINGS":co(t);break;'
+    );
+    const script = document.createElement("script");
+    script.textContent = source;
+    (document.head || document.documentElement).appendChild(script);
+  } catch (error) {
+    console.error("TizenTube userscript failed:", error);
+    if (window.h5vcc && window.h5vcc.tizentube) {
+      window.h5vcc.tizentube.ShowAlertDialog(
+        "Error", "Could not load TizenTube userscript: " + error);
+    }
+  }
+})();
+)JS";
+      script->setTextContent(AtomicString(loader.c_str()));
       script_container->appendChild(script);
-
-      // Request to cdn.jsdelivr.net with HEAD method to see if JSDelivr is reachable.
-      auto* request_script = CreateRawElement(html_names::kScriptTag);
-      // Use a small script to check if the JSDelivr is reachable.
-      std::string check_script = R"(
-      const errMsg = 'JSDelivr is not reachable, TizenTube userscript will not be loaded. This can happen due to network issues (such as your DNS server not resolving cdn.jsdelivr.net) or if your ISP is blocking access to JSDelivr.';
-        fetch('https://cdn.jsdelivr.net/npm/@foxreis/tizentube/dist/userScript.js', { method: 'HEAD' })
-          .then(response => {
-            if (!response.ok) {
-              console.error('JSDelivr is not reachable. Status:', response.status);
-              h5vcc.tizentube.ShowAlertDialog('Error', errMsg);
-            }
-          })
-          .catch(error => {
-            h5vcc.tizentube.ShowAlertDialog('Error', errMsg);
-          });
-      )";
-      request_script->setTextContent(AtomicString(check_script.c_str()));
-      script_container->appendChild(request_script);
     }
   }
 

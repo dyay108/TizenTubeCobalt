@@ -270,16 +270,16 @@ out/android-arm_devel/apks/Cobalt.apk
 
 `gn.py -c` selects the build type:
 
-| Type | Test button | Notes |
+| Type | Proxy settings | Notes |
 | --- | --- | --- |
 | `devel` | Yes | Recommended for development. Includes debug command-line switches. |
 | `debug` | Yes | Debug-oriented, much slower to run. |
-| `qa` | No | Official-style build with stack traces. |
-| `gold` | No | Release build. |
+| `qa` | Yes | Official-style build with stack traces. |
+| `gold` | Yes | Release build. |
 
-The native HTTP proxy support is compiled in all build types by this fork. The
-on-screen test button is gated by `isDevelopmentBuild()` and therefore appears
-only in debug/devel builds.
+The app-local HTTP proxy setting is compiled in all build types. It is configured
+from **Settings → TizenTube Settings → HTTP Proxy** and does not modify the
+Android system proxy.
 
 ## Install and test on a device
 
@@ -296,16 +296,15 @@ adb uninstall io.gh.reisxd.tizentube.cobalt
 adb install out/android-arm_devel/apks/Cobalt.apk
 ```
 
-Set the device proxy (for a fixed HTTP proxy):
+Open **Settings → TizenTube Settings → HTTP Proxy**:
 
-```sh
-adb shell settings put global http_proxy proxy.example.com:8080
-adb shell settings get global http_proxy
-```
+1. Enter a proxy such as `proxy.example.com:8080`.
+2. Select **Test proxy** to verify the proxy with an HTTPS request.
+3. Select **Save**.
+4. Restart TizenTube to apply the saved value to Cobalt's network stack.
 
-Restart the app after changing the proxy. On a devel build, the **Test HTTP
-proxy** button appears at the top-right. It runs a request from the page through
-Cobalt's network stack and shows the HTTP status or error.
+The proxy is used only by this app. The Android system-wide proxy is not
+consulted and does not need to be configured.
 
 Useful checks:
 
@@ -315,12 +314,6 @@ adb shell dumpsys package io.gh.reisxd.tizentube.cobalt | grep -E 'versionName|v
 
 # Inspect proxy-related log messages and generated request errors:
 adb logcat -s starboard:* chromium:* | grep -i proxy
-```
-
-To clear a proxy:
-
-```sh
-adb shell settings put global http_proxy :0
 ```
 
 ## Troubleshooting

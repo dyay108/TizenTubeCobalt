@@ -48,14 +48,15 @@ Get the latest release for your platform:
 
 ## 🌐 HTTP Proxy
 
-TizenTube Cobalt uses the HTTP proxy configured for the active network in the
-device's network settings. On Android TV, this is usually found under
-**Settings → Network & Internet → (network) → Proxy**. Fixed HTTP proxies, PAC
-scripts and bypass lists are supported. Restart the app after changing the
-network proxy.
+TizenTube Cobalt has an **app-only HTTP proxy** setting. It is configured under
+**Settings → TizenTube Settings → HTTP Proxy** and does not change the Android
+system-wide proxy. The proxy applies only to this app.
 
-When running a QA or devel build, you can override the system proxy from the
-command line:
+Enter the proxy as `host:port` (for example `proxy.example.com:8080`), use
+**Test proxy** to verify connectivity, then **Save**. Restart TizenTube to apply
+the saved proxy to Cobalt's network stack.
+
+Command-line overrides remain available for QA/devel builds:
 
 ```sh
 --proxy-server=proxy.example.com:8080

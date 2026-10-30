@@ -16,10 +16,9 @@ package dev.cobalt.coat;
 
 import static dev.cobalt.util.Log.TAG;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.net.ConnectivityManager;
 import android.net.ProxyInfo;
 import android.net.Uri;
@@ -28,9 +27,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Display;
-import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.View;
@@ -38,8 +37,10 @@ import android.view.ViewGroup.LayoutParams;
 import android.view.ViewParent;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.PopupWindow;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -111,8 +112,6 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
   private CobaltA11yHelper mA11yHelper;
 
   private VideoSurfaceView mVideoSurfaceView;
-  private @Nullable Button mProxyTestButton;
-  private @Nullable PopupWindow mProxyTestPopup;
 
   private boolean mForceCreateNewVideoSurfaceView;
 
@@ -334,8 +333,24 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     appendMetaDataArgs(args, getActivityMetaData());
     args.addAll(JavaSwitches.getExtraCommandLineArgs(getJavaSwitches()));
     appendIntentArgs(args);
-    appendSystemProxyArgs(args);
+    appendAppProxyArgs(args);
     return args;
+  }
+
+  private void appendAppProxyArgs(@NonNull List<String> args) {
+    if (hasProxySwitch(args)) {
+      return;
+    }
+    String proxy = getSavedAppProxy();
+    if (!TextUtils.isEmpty(proxy)) {
+      args.add(PROXY_SERVER_SWITCH + "=" + proxy);
+    }
+  }
+
+  @VisibleForTesting
+  @Nullable
+  String getSavedAppProxy() {
+    return ProxySettings.get(this);
   }
 
   // Initially copied from ContentShellActiviy.java
@@ -505,111 +520,90 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
 
             // Load splash screen.
             mShellManager.getActiveShell().loadSplashScreenWebContents();
-
-            showProxyTestButtonIfNeeded();
           }
         });
   }
 
   /**
-   * Adds a development-only button that exercises the app's network stack through the configured
-   * HTTP proxy. The button is intentionally not shown in release builds.
+   * Shows the app-local HTTP proxy editor. The value is stored in SharedPreferences and is applied
+   * as a Cobalt command-line switch on the next launch; it never changes the Android system proxy.
    */
-  private void showProxyTestButtonIfNeeded() {
-    if (!isDevelopmentBuild() || mProxyTestButton != null) {
+  void showProxySettingsDialog() {
+    if (isFinishing() || isDestroyed()) {
       return;
     }
 
-    Button button = new Button(this);
-    button.setText("Test HTTP proxy");
-    button.setAllCaps(false);
-    button.setFocusable(true);
-    button.setFocusableInTouchMode(true);
-    button.setOnClickListener(v -> runProxyConnectivityTest(button));
+    int padding = (int) (24 * getResources().getDisplayMetrics().density);
+    LinearLayout layout = new LinearLayout(this);
+    layout.setOrientation(LinearLayout.VERTICAL);
+    layout.setPadding(padding, padding, padding, padding);
 
-    PopupWindow popup =
-        new PopupWindow(
-            button,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            true);
-    popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-    popup.setOutsideTouchable(false);
-    popup.setFocusable(true);
-    popup.setOnDismissListener(() -> mProxyTestPopup = null);
+    EditText input = new EditText(this);
+    input.setSingleLine(true);
+    input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+    input.setHint("host:port");
+    input.setText(getSavedAppProxy());
+    layout.addView(input);
 
-    View anchor = mVideoSurfaceView;
-    if (anchor == null) {
-      anchor = getWindow().getDecorView();
-    }
-    final View popupAnchor = anchor;
-    mProxyTestButton = button;
-    mProxyTestPopup = popup;
+    TextView result = new TextView(this);
+    result.setPadding(0, padding / 2, 0, padding / 2);
+    layout.addView(result);
 
-    // Wait until the activity's window token is available before adding the popup window.
-    popupAnchor.post(
-        () -> {
-          if (mProxyTestPopup != popup) {
-            return;
-          }
-          popup.showAtLocation(popupAnchor, Gravity.TOP | Gravity.END, 24, 24);
-          if (!button.requestFocus()) {
-            Log.w(TAG, "Could not focus the HTTP proxy test button");
-          }
+    Button testButton = new Button(this);
+    testButton.setText("Test proxy");
+    testButton.setAllCaps(false);
+    testButton.setOnClickListener(
+        v -> {
+          testButton.setEnabled(false);
+          result.setText("Testing...");
+          final String proxy = input.getText().toString();
+          new Thread(
+                  () -> {
+                    String testResult = ProxySettings.test(proxy);
+                    runOnUiThread(
+                        () -> {
+                          if (!isFinishing() && !isDestroyed()) {
+                            result.setText(testResult);
+                            testButton.setEnabled(true);
+                          }
+                        });
+                  },
+                  "proxy-test")
+              .start();
         });
+    layout.addView(testButton);
 
-    Log.i(TAG, "Added HTTP proxy test button");
-  }
-
-  private void runProxyConnectivityTest(Button button) {
-    button.setText("Testing proxy...");
-    button.setEnabled(false);
-    button.setFocusable(false);
-
-    // Run the request from the page so it goes through Cobalt's network stack (and therefore the
-    // configured proxy) rather than through a separate Java HTTP client.
-    String script =
-        "(function() {"
-            + "  var url = 'https://www.youtube.com/generate_204?tt_proxy_test=' + Date.now();"
-            + "  var start = Date.now();"
-            + "  function show(title, message) {"
-            + "    console.log('TT_PROXY_TEST ' + title + ': ' + message);"
-            + "    if (window.h5vcc && h5vcc.tizentube && h5vcc.tizentube.ShowAlertDialog) {"
-            + "      h5vcc.tizentube.ShowAlertDialog(title, message);"
-            + "    } else { alert(title + ': ' + message); }"
-            + "  }"
-            + "  fetch(url, {cache: 'no-store', credentials: 'omit'})"
-            + "    .then(function(response) {"
-            + "      show('Proxy test', 'HTTP ' + response.status + ' in ' + (Date.now() - start) + ' ms');"
-            + "    })"
-            + "    .catch(function(error) { show('Proxy test failed', String(error)); });"
-            + "})();";
-    evaluateJavaScript(script);
-
-    // The popup owns window focus; dismiss it so the page (and its result dialog) can receive
-    // input again.
-    if (mProxyTestPopup != null) {
-      mProxyTestPopup.dismiss();
-      mProxyTestPopup = null;
+    AlertDialog dialog =
+        new AlertDialog.Builder(this)
+            .setTitle("HTTP proxy (TizenTube only)")
+            .setView(layout)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create();
+    dialog.setOnShowListener(
+        ignored ->
+            dialog
+                .getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(
+                    v -> {
+                      String normalized = ProxySettings.normalize(input.getText().toString());
+                      if (normalized == null) {
+                        input.setError("Use host:port");
+                        return;
+                      }
+                      ProxySettings.save(this, normalized);
+                      Toast.makeText(
+                              this,
+                              "Saved. Restart TizenTube to apply the app proxy.",
+                              Toast.LENGTH_LONG)
+                          .show();
+                      dialog.dismiss();
+                    }));
+    dialog.show();
+    if (dialog.getWindow() != null) {
+      dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
-
-    // Restore focus to the web contents so the app remains navigable after the test.
-    View contentView = mVideoSurfaceView;
-    if (contentView == null && mShellManager != null) {
-      contentView = mShellManager.getContentViewRenderView();
-    }
-    if (contentView != null) {
-      contentView.requestFocus();
-    }
-
-    button.postDelayed(
-        () -> {
-          button.setText("Test HTTP proxy");
-          button.setEnabled(true);
-        },
-        10000);
-
-    Log.i(TAG, "Running HTTP proxy connectivity test");
+    input.requestFocus();
   }
 
   // Initially copied from ContentShellActiviy.java
@@ -783,6 +777,7 @@ public abstract class CobaltActivity extends BaseCobaltActivity {
     // 1. Gather all Java objects that need to be exposed to JavaScript.
     // TODO(b/379701165): consider to refine the way to add JavaScript interfaces.
     mJavaScriptAndroidObjectList.add(new HTMLMediaElementExtension(this));
+    mJavaScriptAndroidObjectList.add(new TizenTubeProxyBridge(this));
 
     // 2. Use JavascriptInjector to inject Java objects into the WebContents.
     //    This makes the annotated methods in these objects accessible from JavaScript.
